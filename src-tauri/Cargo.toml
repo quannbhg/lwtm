@@ -37,7 +37,7 @@ windows = { version = "0.62", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 
-# Giữ binary nhỏ và nhẹ khi build release
+# Keep the release binary small
 [profile.release]
 opt-level = "s"
 lto = true
