@@ -1,5 +1,6 @@
 <script>
   import { dialog, closeDialog } from "./dialog.svelte.js";
+  import { t } from "./i18n.svelte.js";
 
   let ack = $state(false);
   $effect(() => {
@@ -22,10 +23,10 @@
         </ul>
       {/if}
       {#if dialog.requireAck}
-        <label class="ack"><input type="checkbox" bind:checked={ack} /> Tôi hiểu rủi ro và vẫn muốn tiếp tục</label>
+        <label class="ack"><input type="checkbox" bind:checked={ack} /> {t("Tôi hiểu rủi ro và vẫn muốn tiếp tục")}</label>
       {/if}
       <div class="actions">
-        <button class="btn" onclick={() => closeDialog(false)}>Huỷ</button>
+        <button class="btn" onclick={() => closeDialog(false)}>{t("Huỷ")}</button>
         <button class="primary" disabled={blocked} onclick={() => closeDialog(true)}>{dialog.okLabel}</button>
       </div>
     </div>

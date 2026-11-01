@@ -1,11 +1,12 @@
 import { assess } from "./critical.js";
 import { fmtBytes, fmtRate } from "./format.js";
+import { t } from "./i18n.svelte.js";
 
 const IGNORED = new Set(["system idle process", "idle"]);
 
 /**
  * Answers "Why is my PC slow?" in plain language.
- * @returns {{ level: "good" | "busy" | "slow", headline: string, causes: string[], culprits: object[] }}
+ * @returns {{ level: "good" | "busy" | "slow", headline: string, causes: { label: string, text: string }[], culprits: object[] }}
  */
 export function diagnose(snap, groups) {
   const ram = (snap.memory_used / snap.memory_total) * 100;
@@ -13,17 +14,19 @@ export function diagnose(snap, groups) {
   const cpu = snap.cpu;
 
   const causes = [];
-  if (cpu > 85) causes.push("CPU đang quá tải nên mọi thao tác bị chậm lại.");
-  else if (cpu > 60) causes.push("CPU đang khá bận.");
-  if (ram > 90) causes.push("RAM gần đầy: máy phải dùng ổ đĩa thay cho RAM nên rất dễ bị giật, đơ.");
-  else if (ram > 80) causes.push("RAM đã dùng hơn 80%, mở thêm ứng dụng sẽ làm máy chậm hẳn.");
-  if (disk > 50 << 20) causes.push("Ổ đĩa đang đọc/ghi liên tục, các thao tác mở file hoặc ứng dụng sẽ bị trễ.");
+  // Each cause has a short `label` (shown as a chip, so the card keeps a constant height)
+  // and the full explanation in `text` (shown as its tooltip).
+  if (cpu > 85) causes.push({ label: t("CPU cao"), text: t("CPU đang quá tải nên mọi thao tác bị chậm lại.") });
+  else if (cpu > 60) causes.push({ label: t("CPU bận"), text: t("CPU đang khá bận.") });
+  if (ram > 90) causes.push({ label: t("RAM đầy"), text: t("RAM gần đầy: máy phải dùng ổ đĩa thay cho RAM nên rất dễ bị giật, đơ.") });
+  else if (ram > 80) causes.push({ label: t("RAM cao"), text: t("RAM đã dùng hơn 80%, mở thêm ứng dụng sẽ làm máy chậm hẳn.") });
+  if (disk > 50 << 20) causes.push({ label: t("Ổ đĩa bận"), text: t("Ổ đĩa đang đọc/ghi liên tục, các thao tác mở file hoặc ứng dụng sẽ bị trễ.") });
 
   const level = cpu > 85 || ram > 92 ? "slow" : causes.length ? "busy" : "good";
   const headline = {
-    good: "Máy đang chạy ổn, không có gì bất thường.",
-    busy: "Máy đang hơi bận.",
-    slow: "Máy đang bị quá tải.",
+    good: t("Máy đang chạy ổn, không có gì bất thường."),
+    busy: t("Máy đang hơi bận."),
+    slow: t("Máy đang bị quá tải."),
   }[level];
 
   // Weights: the more strained a resource is, the higher culprits using that resource score
@@ -40,16 +43,20 @@ export function diagnose(snap, groups) {
       const score = cpuPart + memPart + diskPart;
       const top = Math.max(cpuPart, memPart, diskPart);
       let why;
-      if (top === cpuPart) why = `đang chiếm ${g.cpu.toFixed(0)}% CPU — nó tính toán rất nhiều`;
-      else if (top === memPart) why = `đang giữ ${fmtBytes(g.memory)} RAM (${((g.memory / snap.memory_total) * 100).toFixed(0)}% bộ nhớ máy)`;
-      else why = `đang đọc/ghi đĩa ${fmtRate(g.disk)}`;
+      if (top === cpuPart) why = t("đang chiếm {cpu}% CPU — nó tính toán rất nhiều", { cpu: g.cpu.toFixed(0) });
+      else if (top === memPart)
+        why = t("đang giữ {mem} RAM ({pct}% bộ nhớ máy)", {
+          mem: fmtBytes(g.memory),
+          pct: ((g.memory / snap.memory_total) * 100).toFixed(0),
+        });
+      else why = t("đang đọc/ghi đĩa {rate}", { rate: fmtRate(g.disk) });
 
       const risk = g.procs.map(assess).find((a) => a.level);
       const tip = risk
-        ? "Đây là thành phần hệ thống, đừng tắt nó."
+        ? t("Đây là thành phần hệ thống, đừng tắt nó.")
         : top === memPart
-          ? "Nếu không dùng, đóng ứng dụng này sẽ giải phóng RAM ngay."
-          : "Thử bật Chế độ tiết kiệm để nó bớt giành tài nguyên, hoặc đóng nếu không cần.";
+          ? t("Nếu không dùng, đóng ứng dụng này sẽ giải phóng RAM ngay.")
+          : t("Thử bật Chế độ tiết kiệm để nó bớt giành tài nguyên, hoặc đóng nếu không cần.");
       return { key: g.key, name: g.name, pids: g.procs.map((p) => p.pid), score, why, tip, system: !!risk };
     })
     .filter((c) => c.score > 0.04)

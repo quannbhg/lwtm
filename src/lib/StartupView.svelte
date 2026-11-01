@@ -2,6 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
   import { app } from "./store.svelte.js";
+  import { t } from "./i18n.svelte.js";
 
   let entries = $state([]);
   let error = $state("");
@@ -44,20 +45,20 @@
 
 <section class="view">
   <div class="toolbar">
-    <h2>Ứng dụng khởi động</h2>
-    <input type="search" placeholder="Tìm theo tên hoặc đường dẫn…" bind:value={query} />
-    <button class="btn" onclick={load}>Làm mới</button>
+    <h2>{t("Ứng dụng khởi động")}</h2>
+    <input type="search" placeholder={t("Tìm theo tên hoặc đường dẫn…")} bind:value={query} />
+    <button class="btn" onclick={load}>{t("Làm mới")}</button>
   </div>
   <p class="hint">
-    {enabledCount} / {entries.length} mục đang bật. Tắt bớt các mục không cần thiết giúp máy khởi động nhanh hơn.
-    Việc tắt chỉ vô hiệu hoá mục khởi động, không gỡ cài đặt ứng dụng.
+    {t("{a} / {b} mục đang bật. Tắt bớt các mục không cần thiết giúp máy khởi động nhanh hơn.", { a: enabledCount, b: entries.length })}
+    {t("Việc tắt chỉ vô hiệu hoá mục khởi động, không gỡ cài đặt ứng dụng.")}
   </p>
 
   {#if error}<p class="error">{error}</p>{/if}
 
   <div class="findings">
-    {#if loading}<p class="hint pad">Đang tải…</p>
-    {:else if rows.length === 0 && !error}<p class="hint pad">Không có mục khởi động nào.</p>{/if}
+    {#if loading}<p class="hint pad">{t("Đang tải…")}</p>
+    {:else if rows.length === 0 && !error}<p class="hint pad">{t("Không có mục khởi động nào.")}</p>{/if}
 
     {#each rows as e (e.source + e.key)}
       {@const meta = app.meta[e.exe]}
@@ -69,7 +70,7 @@
           <div class="path" title={e.command}>{e.command}</div>
           <small>{e.source_label}</small>
         </div>
-        <button class="switch" class:on={e.enabled} role="switch" aria-checked={e.enabled} aria-label="Bật/tắt {e.name}" onclick={() => toggle(e)}>
+        <button class="switch" class:on={e.enabled} role="switch" aria-checked={e.enabled} aria-label={t("Bật/tắt {name}", { name: e.name })} onclick={() => toggle(e)}>
           <i></i>
         </button>
       </article>

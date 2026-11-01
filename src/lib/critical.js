@@ -3,6 +3,8 @@
 //   caution : system component, ending it may break the UI or some features
 //   null    : ordinary process
 
+import { t } from "./i18n.svelte.js";
+
 const CRITICAL = {
   system: "Nhân hệ điều hành",
   registry: "Lưu trữ cấu hình của Windows",
@@ -50,9 +52,9 @@ const WINDOWS_DIR = /^[a-z]:\\windows\\/i;
 /** @returns {{ level: "critical" | "caution" | null, why: string }} */
 export function assess(p) {
   const key = p.name.toLowerCase().replace(/\.exe$/, "");
-  if (CRITICAL[key]) return { level: "critical", why: CRITICAL[key] };
-  if (CAUTION[key]) return { level: "caution", why: CAUTION[key] };
-  if (p.exe && WINDOWS_DIR.test(p.exe)) return { level: "caution", why: "Thành phần của Windows" };
+  if (CRITICAL[key]) return { level: "critical", why: t(CRITICAL[key]) };
+  if (CAUTION[key]) return { level: "caution", why: t(CAUTION[key]) };
+  if (p.exe && WINDOWS_DIR.test(p.exe)) return { level: "caution", why: t("Thành phần của Windows") };
   return { level: null, why: "" };
 }
 

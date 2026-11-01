@@ -1,6 +1,7 @@
 <script>
   import { invoke } from "@tauri-apps/api/core";
   import { app, nav, goto, endTasks } from "./store.svelte.js";
+  import { t } from "./i18n.svelte.js";
 
   let isOpen = $state(false);
   let query = $state("");
@@ -12,6 +13,7 @@
   const TABS = [
     ["processes", "Tiến trình"],
     ["performance", "Hiệu năng"],
+    ["history", "Lịch sử"],
     ["details", "Chi tiết"],
     ["startup", "Ứng dụng khởi động"],
     ["services", "Dịch vụ"],
@@ -43,17 +45,18 @@
   }
 
   const rank = (text, q) => {
-    const t = text.toLowerCase();
-    return t.startsWith(q) ? 0 : t.includes(q) ? 1 : -1;
+    const lower = text.toLowerCase();
+    return lower.startsWith(q) ? 0 : lower.includes(q) ? 1 : -1;
   };
 
   let items = $derived.by(() => {
     const q = query.trim().toLowerCase();
     const out = [];
 
-    for (const [id, label] of TABS) {
-      if (!q || rank(label, q) >= 0 || rank("đi tới " + label, q) >= 0)
-        out.push({ key: "tab:" + id, kind: "Đi tới", label, run: () => goto(id) });
+    for (const [id, name] of TABS) {
+      const label = t(name);
+      if (!q || rank(label, q) >= 0 || rank(t("đi tới") + " " + label, q) >= 0)
+        out.push({ key: "tab:" + id, kind: t("Đi tới"), label, run: () => goto(id) });
     }
     if (!q) return out;
 
@@ -70,16 +73,16 @@
       const n = e.procs.length;
       out.push({
         key: "view:" + e.name,
-        kind: "Tiến trình",
+        kind: t("Tiến trình"),
         label: `${e.name}${n > 1 ? ` (${n})` : ""}`,
-        hint: "Xem trong Chi tiết",
+        hint: t("Xem trong Chi tiết"),
         run: () => goto("details", e.procs[0].pid),
       });
       out.push({
         key: "end:" + e.name,
-        kind: "Tiến trình",
-        label: `Kết thúc ${e.name}${n > 1 ? ` (${n})` : ""}`,
-        hint: "Có xác nhận",
+        kind: t("Tiến trình"),
+        label: t("Kết thúc {name}", { name: `${e.name}${n > 1 ? ` (${n})` : ""}` }),
+        hint: t("Có xác nhận"),
         run: () => endTasks(e.procs, e.name),
       });
     }
@@ -92,9 +95,9 @@
     for (const { s } of svc) {
       out.push({
         key: "svc:" + s.name,
-        kind: "Dịch vụ",
+        kind: t("Dịch vụ"),
         label: s.display,
-        hint: s.status === "running" ? "đang chạy" : "đã dừng",
+        hint: s.status === "running" ? t("đang chạy") : t("đã dừng"),
         run: () => {
           nav.search = s.display;
           goto("services");
@@ -126,8 +129,8 @@
 
 {#if isOpen}
   <div class="backdrop top" role="presentation" onclick={hide}>
-    <div class="palette" role="dialog" aria-modal="true" aria-label="Tìm nhanh" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-      <input bind:this={inputEl} bind:value={query} onkeydown={onInputKey} placeholder="Gõ tên tiến trình, dịch vụ hoặc tab…" />
+    <div class="palette" role="dialog" aria-modal="true" aria-label={t("Tìm nhanh")} tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
+      <input bind:this={inputEl} bind:value={query} onkeydown={onInputKey} placeholder={t("Gõ tên tiến trình, dịch vụ hoặc tab…")} />
       <ul>
         {#each items as it, i (it.key)}
           <li class:on={i === index}>
@@ -138,10 +141,10 @@
             </button>
           </li>
         {:else}
-          <li class="empty">Không có kết quả</li>
+          <li class="empty">{t("Không có kết quả")}</li>
         {/each}
       </ul>
-      <footer>↑↓ chọn · Enter chạy · Esc đóng</footer>
+      <footer>{t("↑↓ chọn · Enter chạy · Esc đóng")}</footer>
     </div>
   </div>
 {/if}
