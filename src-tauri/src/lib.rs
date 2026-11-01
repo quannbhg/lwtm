@@ -1,10 +1,12 @@
 mod admin;
 mod appmeta;
+mod i18n;
 mod procctl;
 mod security;
 mod services;
 mod startup;
 mod tray;
+mod watch;
 
 use std::{
     collections::HashMap,
@@ -173,7 +175,11 @@ fn kill_processes(pids: Vec<u32>, state: State<SysState>) -> Result<(), String> 
     if failed == 0 {
         Ok(())
     } else {
-        Err(format!("Không thể kết thúc {failed}/{} tiến trình (thiếu quyền hoặc đã thoát)", pids.len()))
+        let n = pids.len();
+        Err(i18n::tr(
+            format!("Không thể kết thúc {failed}/{n} tiến trình (thiếu quyền hoặc đã thoát)"),
+            format!("Could not end {failed}/{n} processes (missing permission or already exited)"),
+        ))
     }
 }
 
@@ -198,15 +204,15 @@ fn list_services() -> Result<Vec<services::ServiceInfo>, String> {
 }
 
 #[tauri::command(async)]
-fn scan_services() -> Result<Vec<security::Finding>, String> {
-    security::scan()
+fn scan_security(kind: String) -> Result<Vec<security::Finding>, String> {
+    security::scan(&kind)
 }
 
 /// Open the VirusTotal hash lookup page in the default browser (accepts valid SHA-256 hashes only).
 #[tauri::command]
 fn open_virustotal(hash: String) -> Result<(), String> {
     if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err("Mã hash không hợp lệ".into());
+        return Err(i18n::tr("Mã hash không hợp lệ", "Invalid hash"));
     }
     let url = format!("https://www.virustotal.com/gui/file/{hash}");
     #[cfg(windows)]
@@ -267,6 +273,12 @@ fn show_main_window(app: tauri::AppHandle) {
     tray::hide_mini(&app);
 }
 
+/// The mini-widget page calls this once it has data, so the window is shown already painted.
+#[tauri::command]
+fn mini_ready(app: tauri::AppHandle) {
+    tray::mini_ready(&app);
+}
+
 #[tauri::command(async)]
 fn control_service(name: String, action: services::Action) -> Result<(), String> {
     services::control(&name, action)
@@ -275,9 +287,9 @@ fn control_service(name: String, action: services::Action) -> Result<(), String>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let monitor = Monitor {
-        sys: System::new().expect("không thể khởi tạo sysinfo"),
-        users: Users::new_with_refreshed_list().expect("không thể đọc danh sách người dùng"),
-        nets: Networks::new_with_refreshed_list().expect("không thể đọc thông tin mạng"),
+        sys: System::new().expect("failed to initialise sysinfo"),
+        users: Users::new_with_refreshed_list().expect("failed to read the user list"),
+        nets: Networks::new_with_refreshed_list().expect("failed to read network information"),
         last: Instant::now(),
     };
     tauri::Builder::default()
@@ -285,7 +297,14 @@ pub fn run() {
         .manage(MetaCache::default())
         .manage(tray::MiniState::default())
         .manage(tray::Prefs::default())
-        .setup(|app| Ok(tray::setup(app)?))
+        .manage(watch::Watch::default())
+        .plugin(tauri_plugin_notification::init())
+        .setup(|app| {
+            // watch::start first: it loads the saved language that the tray menu text depends on
+            watch::start(app.handle().clone());
+            tray::setup(app)?;
+            Ok(())
+        })
         .on_window_event(|window, event| tray::on_window_event(window, event))
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
@@ -296,7 +315,7 @@ pub fn run() {
             set_efficiency,
             list_services,
             control_service,
-            scan_services,
+            scan_security,
             open_virustotal,
             is_elevated,
             restart_as_admin,
@@ -305,8 +324,21 @@ pub fn run() {
             get_autostart,
             set_autostart,
             set_close_to_tray,
-            show_main_window
+            show_main_window,
+            mini_ready,
+            watch::get_history,
+            watch::clear_history,
+            watch::get_watch_config,
+            watch::set_watch_config,
+            watch::set_lang
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            // Windows are destroyed when idle, so "no windows left" must not quit the app:
+            // it keeps living in the tray. Explicit exits (tray "Quit") carry an exit code and still work.
+            tauri::RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
+            tauri::RunEvent::Exit => watch::flush(app),
+            _ => {}
+        });
 }
