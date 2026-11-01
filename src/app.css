@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   color-scheme: light dark;
   --bg: #f3f4f6;
   --panel: #fff;
@@ -109,6 +109,29 @@ tbody tr.child .label { color: var(--muted); }
 select.btn { padding: 6px 10px; }
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 
+/* ---- History ---- */
+.chart-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 6px; }
+.legend { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.lg { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-left: 8px; }
+.lg.cpu { background: #2563eb; }
+.lg.ram { background: #9333ea; }
+.chart { position: relative; height: 170px; }
+.chart svg { width: 100%; height: 100%; display: block; }
+.chart .grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.chart .ln { fill: none; stroke-width: 1.5; }
+.chart .ln.cpu { stroke: #2563eb; }
+.chart .ln.ram { stroke: #9333ea; }
+.chart .cursor { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 3 3; }
+.tip { position: absolute; top: 4px; transform: translateX(-50%); pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; white-space: nowrap; box-shadow: 0 4px 16px rgb(0 0 0 / 0.25); z-index: 2; }
+.xaxis { position: relative; height: 18px; color: var(--muted); font-size: 11px; }
+.xaxis span { position: absolute; transform: translateX(-50%); }
+
+/* ---- Error toast ---- */
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 12px; max-width: min(640px, calc(100vw - 32px)); padding: 10px 14px; border-radius: 10px; background: #b91c1c; color: #fff; box-shadow: 0 8px 28px rgb(0 0 0 / 0.35); animation: toast-in 0.18s ease-out; }
+.toast button { all: unset; cursor: pointer; font-size: 18px; line-height: 1; padding: 0 2px; opacity: 0.8; }
+.toast button:hover { opacity: 1; }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+
 /* ---- Efficiency mode ---- */
 .eco { flex: none; font-size: 12px; }
 .btn.eco-on { border-color: #16a34a; color: #16a34a; }
@@ -133,10 +156,12 @@ tbody tr:not(.pad) td { height: 34px; }
 .ico.lg { width: 32px; height: 32px; border-radius: 6px; font-size: 14px; }
 
 /* ---- Settings ---- */
-.settings { display: grid; gap: 8px; align-content: start; max-width: 720px; }
+/* The list scrolls inside the view so every option stays reachable in a small window */
+.settings { display: grid; gap: 8px; align-content: start; max-width: 720px; flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px; }
 .srow { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .srow span { display: flex; flex-direction: column; gap: 2px; }
 .srow small { color: var(--muted); }
+.srow.sub { margin-left: 24px; padding: 8px 16px; }
 
 /* ---- Dialog + palette ---- */
 .backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgb(0 0 0 / 0.45); }
@@ -166,14 +191,24 @@ tbody tr:not(.pad) td { height: 34px; }
 .diag { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid #16a34a; border-radius: 10px; }
 .diag.busy { border-left-color: #d97706; }
 .diag.slow { border-left-color: var(--danger); }
-.diag-head { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; }
-.diag-head .muted { flex: 1; }
+.diag { flex: none; }
+.diag-head { all: unset; box-sizing: border-box; width: 100%; height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 14px; cursor: pointer; }
+.diag-head .headline { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chips { display: flex; gap: 6px; flex: none; }
+.chip { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: color-mix(in srgb, var(--danger) 14%, var(--panel)); color: var(--danger); white-space: nowrap; }
+.diag.busy .chip { background: color-mix(in srgb, #d97706 16%, var(--panel)); color: #d97706; }
 .diag .dot { width: 10px; height: 10px; border-radius: 50%; background: #16a34a; }
 .diag.busy .dot { background: #d97706; }
 .diag.slow .dot { background: var(--danger); }
-.causes { margin: 0; padding: 0 14px 4px 32px; }
-.culprits { margin: 0; padding: 4px 14px 10px 36px; display: grid; gap: 8px; }
-.culprits li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* Three fixed slots: the height never changes whatever the number of culprits is */
+.culprits { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; height: 88px; padding: 0 14px 12px; }
+.culprit { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow: hidden; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.culprit-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.culprit-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.culprit .why { font-size: 12px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sys { font-size: 12px; }
+.btn.small { padding: 2px 8px; font-size: 12px; flex: none; }
+.culprits .none { grid-column: 1 / -1; align-self: center; margin: 0; }
 
 /* ---- Details table ---- */
 .det th { height: 36px; vertical-align: middle; padding-bottom: 0; font-size: 12px; text-align: left; }
@@ -190,6 +225,10 @@ tbody tr:not(.pad) td { height: 34px; }
 .det th:nth-child(9) { width: 90px; }
 
 /* ---- Security ---- */
+.subtabs { display: flex; gap: 6px; }
+.subtabs button { all: unset; cursor: pointer; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); }
+.subtabs button:hover { border-color: var(--accent); }
+.subtabs button.on { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); border-color: var(--accent); font-weight: 600; }
 .disclaimer { margin: 0; padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, #d97706 12%, var(--panel)); border: 1px solid color-mix(in srgb, #d97706 40%, var(--line)); line-height: 1.45; }
 .summary { display: flex; gap: 10px; }
 .sum { flex: 1; display: flex; align-items: baseline; gap: 8px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
