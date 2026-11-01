@@ -8,7 +8,7 @@ pub struct StartupEntry {
     /// Source (used to enable/disable): hkcu_run, hklm_run, folder_user…
     pub source: &'static str,
     /// Source name shown to the user
-    pub source_label: &'static str,
+    pub source_label: String,
     /// Identifier within the source (registry value name or file name)
     pub key: String,
     pub name: String,
@@ -43,7 +43,8 @@ mod imp {
 
     struct Source {
         id: &'static str,
-        label: &'static str,
+        /// (Vietnamese, English)
+        label: (&'static str, &'static str),
         hive: HKEY,
         /// Registry key holding the list (None for a folder source)
         run_key: Option<&'static str>,
@@ -60,11 +61,11 @@ mod imp {
     }
 
     const SOURCES: [Source; 5] = [
-        Source { id: "hkcu_run", label: "Registry (người dùng)", hive: HKEY_CURRENT_USER, run_key: Some(RUN), folder: None, approved: "Run" },
-        Source { id: "hklm_run", label: "Registry (mọi người dùng)", hive: HKEY_LOCAL_MACHINE, run_key: Some(RUN), folder: None, approved: "Run" },
-        Source { id: "hklm_run32", label: "Registry (32-bit)", hive: HKEY_LOCAL_MACHINE, run_key: Some(RUN32), folder: None, approved: "Run32" },
-        Source { id: "folder_user", label: "Thư mục Startup (người dùng)", hive: HKEY_CURRENT_USER, run_key: None, folder: Some(user_folder), approved: "StartupFolder" },
-        Source { id: "folder_common", label: "Thư mục Startup (mọi người dùng)", hive: HKEY_LOCAL_MACHINE, run_key: None, folder: Some(common_folder), approved: "StartupFolder" },
+        Source { id: "hkcu_run", label: ("Registry (người dùng)", "Registry (current user)"), hive: HKEY_CURRENT_USER, run_key: Some(RUN), folder: None, approved: "Run" },
+        Source { id: "hklm_run", label: ("Registry (mọi người dùng)", "Registry (all users)"), hive: HKEY_LOCAL_MACHINE, run_key: Some(RUN), folder: None, approved: "Run" },
+        Source { id: "hklm_run32", label: ("Registry (32-bit)", "Registry (32-bit)"), hive: HKEY_LOCAL_MACHINE, run_key: Some(RUN32), folder: None, approved: "Run32" },
+        Source { id: "folder_user", label: ("Thư mục Startup (người dùng)", "Startup folder (current user)"), hive: HKEY_CURRENT_USER, run_key: None, folder: Some(user_folder), approved: "StartupFolder" },
+        Source { id: "folder_common", label: ("Thư mục Startup (mọi người dùng)", "Startup folder (all users)"), hive: HKEY_LOCAL_MACHINE, run_key: None, folder: Some(common_folder), approved: "StartupFolder" },
     ];
 
     fn is_enabled(src: &Source, key: &str) -> bool {
@@ -87,7 +88,7 @@ mod imp {
                     let exe = exe_path(&command).0.map(|p| p.to_string_lossy().into_owned());
                     out.push(StartupEntry {
                         source: src.id,
-                        source_label: src.label,
+                        source_label: crate::i18n::tr(src.label.0, src.label.1),
                         enabled: is_enabled(src, &name),
                         key: name.clone(),
                         name,
@@ -105,7 +106,7 @@ mod imp {
                     let path = e.path().to_string_lossy().into_owned();
                     out.push(StartupEntry {
                         source: src.id,
-                        source_label: src.label,
+                        source_label: crate::i18n::tr(src.label.0, src.label.1),
                         enabled: is_enabled(src, &file),
                         name: file.rsplit_once('.').map(|(n, _)| n.to_string()).unwrap_or_else(|| file.clone()),
                         key: file,
@@ -119,7 +120,10 @@ mod imp {
     }
 
     pub fn set_enabled(t: &Target, enabled: bool) -> Result<(), String> {
-        let src = SOURCES.iter().find(|s| s.id == t.source).ok_or("Nguồn không hợp lệ")?;
+        let src = SOURCES
+            .iter()
+            .find(|s| s.id == t.source)
+            .ok_or_else(|| crate::i18n::tr("Nguồn không hợp lệ", "Invalid source"))?;
         let (key, _) = RegKey::predef(src.hive)
             .create_subkey(format!(r"{APPROVED}\{}", src.approved))
             .map_err(denied)?;
@@ -130,7 +134,10 @@ mod imp {
 
     fn denied(e: std::io::Error) -> String {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
-            "Cần quyền Administrator để thay đổi mục này".into()
+            crate::i18n::tr(
+                "Cần quyền Administrator để thay đổi mục này",
+                "Administrator rights are required to change this entry",
+            )
         } else {
             e.to_string()
         }
@@ -183,7 +190,7 @@ mod imp {
         let gnome_off = field(text, "X-GNOME-Autostart-enabled").is_some_and(|v| v.eq_ignore_ascii_case("false"));
         StartupEntry {
             source,
-            source_label: label,
+            source_label: label.to_string(),
             name: field(text, "Name").map(String::from).unwrap_or_else(|| file.clone()),
             exe: exec.split_whitespace().next().map(String::from),
             command: exec,
@@ -218,7 +225,7 @@ mod imp {
     }
 
     pub fn set_enabled(t: &Target, enabled: bool) -> Result<(), String> {
-        let dir = user_dir().ok_or("Không xác định được thư mục cấu hình")?;
+        let dir = user_dir().ok_or_else(no_config_dir)?;
         let src = if t.source == "folder_common" { PathBuf::from("/etc/xdg/autostart").join(&t.key) } else { dir.join(&t.key) };
         let text = fs::read_to_string(&src).map_err(|e| e.to_string())?;
         let mut lines: Vec<String> = text
@@ -234,6 +241,10 @@ mod imp {
         fs::write(dir.join(&t.key), lines.join("\n") + "\n").map_err(|e| e.to_string())
     }
 
+    fn no_config_dir() -> String {
+        crate::i18n::tr("Không xác định được thư mục cấu hình", "Could not determine the config folder")
+    }
+
     fn own_file() -> Option<PathBuf> {
         user_dir().map(|d| d.join(format!("{APP_ENTRY}.desktop")))
     }
@@ -243,7 +254,7 @@ mod imp {
     }
 
     pub fn set_autostart(on: bool) -> Result<(), String> {
-        let path = own_file().ok_or("Không xác định được thư mục cấu hình")?;
+        let path = own_file().ok_or_else(no_config_dir)?;
         if on {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
@@ -265,18 +276,23 @@ mod imp {
 mod imp {
     use super::{StartupEntry, Target};
 
-    const MSG: &str = "Quản lý ứng dụng khởi động chưa được hỗ trợ trên hệ điều hành này";
+    fn msg() -> String {
+        crate::i18n::tr(
+            "Quản lý ứng dụng khởi động chưa được hỗ trợ trên hệ điều hành này",
+            "Startup app management is not supported on this operating system",
+        )
+    }
 
     pub fn list() -> Result<Vec<StartupEntry>, String> {
-        Err(MSG.into())
+        Err(msg())
     }
     pub fn set_enabled(_t: &Target, _enabled: bool) -> Result<(), String> {
-        Err(MSG.into())
+        Err(msg())
     }
     pub fn autostart_enabled() -> bool {
         false
     }
     pub fn set_autostart(_on: bool) -> Result<(), String> {
-        Err(MSG.into())
+        Err(msg())
     }
 }

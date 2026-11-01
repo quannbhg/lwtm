@@ -43,7 +43,10 @@ pub fn relaunch_elevated() -> Result<(), String> {
 
     // In dev mode the window loads its UI from the dev server, and quitting the current copy stops that server too
     if cfg!(debug_assertions) {
-        return Err("Ở chế độ phát triển, hãy mở terminal bằng \"Run as administrator\" rồi chạy lại `npm run tauri dev`".into());
+        return Err(crate::i18n::tr(
+            "Ở chế độ phát triển, hãy mở terminal bằng \"Run as administrator\" rồi chạy lại `npm run tauri dev`",
+            "In development mode, open your terminal with \"Run as administrator\" and run `npm run tauri dev` again",
+        ));
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe: Vec<u16> = exe.to_string_lossy().encode_utf16().chain(Some(0)).collect();
@@ -53,12 +56,18 @@ pub fn relaunch_elevated() -> Result<(), String> {
         if r.0 as usize > 32 {
             Ok(())
         } else {
-            Err("Bạn đã từ chối yêu cầu quyền Administrator".into())
+            Err(crate::i18n::tr(
+                "Bạn đã từ chối yêu cầu quyền Administrator",
+                "You declined the Administrator permission request",
+            ))
         }
     }
 }
 
 #[cfg(not(windows))]
 pub fn relaunch_elevated() -> Result<(), String> {
-    Err("Hãy chạy lại ứng dụng bằng sudo hoặc pkexec để có quyền quản trị".into())
+    Err(crate::i18n::tr(
+        "Hãy chạy lại ứng dụng bằng sudo hoặc pkexec để có quyền quản trị",
+        "Run the app again with sudo or pkexec to get administrator rights",
+    ))
 }

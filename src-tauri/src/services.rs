@@ -36,12 +36,20 @@ pub use linux::{control, list};
 
 #[cfg(not(any(windows, target_os = "linux")))]
 pub fn list() -> Result<Vec<ServiceInfo>, String> {
-    Err("Quản lý dịch vụ chưa được hỗ trợ trên hệ điều hành này".into())
+    Err(unsupported())
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
 pub fn control(_name: &str, _action: Action) -> Result<(), String> {
-    Err("Quản lý dịch vụ chưa được hỗ trợ trên hệ điều hành này".into())
+    Err(unsupported())
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn unsupported() -> String {
+    crate::i18n::tr(
+        "Quản lý dịch vụ chưa được hỗ trợ trên hệ điều hành này",
+        "Service management is not supported on this operating system",
+    )
 }
 
 /// Linux: read and control systemd services through `systemctl`.
@@ -57,7 +65,12 @@ mod linux {
         let out = Command::new("systemctl")
             .args(["show", "--no-pager", "--all", "--type=service", "-p", PROPS, "*.service"])
             .output()
-            .map_err(|e| format!("Không chạy được systemctl (hệ thống không dùng systemd?): {e}"))?;
+            .map_err(|e| {
+                crate::i18n::tr(
+                    format!("Không chạy được systemctl (hệ thống không dùng systemd?): {e}"),
+                    format!("Could not run systemctl (is this system using systemd?): {e}"),
+                )
+            })?;
         let text = String::from_utf8_lossy(&out.stdout);
 
         let mut res = Vec::new();
@@ -120,7 +133,11 @@ mod linux {
             Ok(())
         } else {
             let err = String::from_utf8_lossy(&out.stderr);
-            Err(format!("{} (có thể cần chạy app bằng sudo)", err.trim()))
+            let msg = err.trim();
+            Err(crate::i18n::tr(
+                format!("{msg} (có thể cần chạy app bằng sudo)"),
+                format!("{msg} (you may need to run the app with sudo)"),
+            ))
         }
     }
 }
@@ -152,7 +169,10 @@ mod win {
 
     fn err(e: Error) -> String {
         if e.code() == ERROR_ACCESS_DENIED.to_hresult() {
-            "Bị từ chối truy cập — hãy chạy ứng dụng với quyền Administrator".into()
+            crate::i18n::tr(
+                "Bị từ chối truy cập — hãy chạy ứng dụng với quyền Administrator",
+                "Access denied — run the app as Administrator",
+            )
         } else {
             e.message()
         }

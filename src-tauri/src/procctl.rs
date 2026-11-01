@@ -82,9 +82,10 @@ mod unix {
         if failed == 0 {
             Ok(())
         } else {
-            Err(format!(
-                "Không thể thay đổi {failed}/{} tiến trình (không đủ quyền: chỉ root mới được tăng ưu tiên hoặc đổi tiến trình của người khác)",
-                pids.len()
+            let n = pids.len();
+            Err(crate::i18n::tr(
+                format!("Không thể thay đổi {failed}/{n} tiến trình (không đủ quyền: chỉ root mới được tăng ưu tiên hoặc đổi tiến trình của người khác)"),
+                format!("Could not change {failed}/{n} processes (not enough permission: only root can raise priority or change other users' processes)"),
             ))
         }
     }
@@ -104,11 +105,17 @@ pub fn extras(_pids: &[u32]) -> std::collections::HashMap<u32, Extra> {
 }
 #[cfg(not(any(windows, unix)))]
 pub fn set_priority(_pids: &[u32], _p: Priority) -> Result<(), String> {
-    Err("Đặt độ ưu tiên chưa được hỗ trợ trên hệ điều hành này".into())
+    Err(crate::i18n::tr(
+        "Đặt độ ưu tiên chưa được hỗ trợ trên hệ điều hành này",
+        "Setting priority is not supported on this operating system",
+    ))
 }
 #[cfg(not(any(windows, unix)))]
 pub fn set_efficiency(_pids: &[u32], _on: bool) -> Result<(), String> {
-    Err("Chế độ tiết kiệm chưa được hỗ trợ trên hệ điều hành này".into())
+    Err(crate::i18n::tr(
+        "Chế độ tiết kiệm chưa được hỗ trợ trên hệ điều hành này",
+        "Efficiency mode is not supported on this operating system",
+    ))
 }
 
 #[cfg(windows)]
@@ -198,9 +205,10 @@ mod win {
         if failed == 0 {
             Ok(())
         } else {
-            Err(format!(
-                "Không thể thay đổi {failed}/{} tiến trình (tiến trình được bảo vệ hoặc cần quyền Administrator)",
-                pids.len()
+            let n = pids.len();
+            Err(crate::i18n::tr(
+                format!("Không thể thay đổi {failed}/{n} tiến trình (tiến trình được bảo vệ hoặc cần quyền Administrator)"),
+                format!("Could not change {failed}/{n} processes (protected process or Administrator rights required)"),
             ))
         }
     }
