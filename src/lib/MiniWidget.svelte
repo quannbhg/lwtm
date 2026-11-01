@@ -1,10 +1,20 @@
-﻿<script>
+<script>
   import { invoke } from "@tauri-apps/api/core";
   import { app } from "./store.svelte.js";
   import { groupProcesses } from "./groups.js";
   import { fmtBytes, fmtRate } from "./format.js";
+  import { t } from "./i18n.svelte.js";
 
   let s = $derived(app.snap);
+
+  // Tell Rust the page has data, so the window is shown already painted (it is created hidden)
+  let announced = false;
+  $effect(() => {
+    if (s && !announced) {
+      announced = true;
+      invoke("mini_ready").catch(() => {});
+    }
+  });
   let ramPct = $derived(s ? (s.memory_used / s.memory_total) * 100 : 0);
   let top = $derived(
     groupProcesses(s, app.meta)
@@ -28,9 +38,9 @@
     <span>↑ {s ? fmtRate(s.net_tx) : "–"}</span>
   </div>
   {#if top}
-    <div class="top" data-tauri-drag-region title="Ứng dụng dùng nhiều CPU nhất">
+    <div class="top" data-tauri-drag-region title={t("Ứng dụng dùng nhiều CPU nhất")}>
       🔥 {top.name} · {top.cpu.toFixed(0)}% · {fmtBytes(top.memory)}
     </div>
   {/if}
-  <button class="open" onclick={() => invoke("show_main_window")}>Mở Task Manager</button>
+  <button class="open" onclick={() => invoke("show_main_window")}>{t("Mở Task Manager")}</button>
 </div>
