@@ -13,10 +13,107 @@ use std::{
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::services::{self, ServiceInfo};
+use crate::{
+    i18n::tr,
+    services::{self, ServiceInfo},
+    startup::{self, StartupEntry},
+};
+
+/// Anything the scanner can judge: a service, a running application or a startup entry.
+pub struct Subject {
+    /// service | process | startup
+    kind: &'static str,
+    name: String,
+    display: String,
+    /// running | stopped for services/processes, enabled | disabled for startup entries
+    status: &'static str,
+    /// Full command line (the executable comes first)
+    binary: Option<String>,
+    account: Option<String>,
+    description: Option<String>,
+    pids: Vec<u32>,
+    source: Option<String>,
+    key: Option<String>,
+}
+
+impl From<&ServiceInfo> for Subject {
+    fn from(s: &ServiceInfo) -> Self {
+        Subject {
+            kind: "service",
+            name: s.name.clone(),
+            display: s.display.clone(),
+            status: s.status,
+            binary: s.binary.clone(),
+            account: s.account.clone(),
+            description: s.description.clone(),
+            pids: s.pid.into_iter().collect(),
+            source: None,
+            key: None,
+        }
+    }
+}
+
+impl From<&StartupEntry> for Subject {
+    fn from(e: &StartupEntry) -> Self {
+        Subject {
+            kind: "startup",
+            name: e.name.clone(),
+            display: e.name.clone(),
+            status: if e.enabled { "enabled" } else { "disabled" },
+            binary: Some(e.command.clone()),
+            account: None,
+            description: None,
+            pids: Vec::new(),
+            source: Some(e.source.to_string()),
+            key: Some(e.key.clone()),
+        }
+    }
+}
+
+/// One subject per distinct executable; all its running processes are collected in `pids`.
+fn running_subjects() -> Result<Vec<Subject>, String> {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+    let mut sys = System::new().map_err(|e| e.to_string())?;
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet).with_cmd(UpdateKind::OnlyIfNotSet),
+    );
+    let mut by_exe: std::collections::HashMap<String, Subject> = Default::default();
+    for (pid, p) in sys.processes() {
+        let Some(exe) = p.exe() else { continue };
+        let exe_s = exe.to_string_lossy().into_owned();
+        let s = by_exe.entry(exe_s.to_lowercase()).or_insert_with(|| {
+            // quote the exe so paths with spaces parse correctly, then append the real arguments
+            let args: Vec<String> = p.cmd().iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+            let name = p.name().to_string_lossy().into_owned();
+            Subject {
+                kind: "process",
+                display: name.clone(),
+                name,
+                status: "running",
+                binary: Some(format!("\"{exe_s}\" {}", args.join(" ")).trim_end().to_string()),
+                account: None,
+                description: None,
+                pids: Vec::new(),
+                source: None,
+                key: None,
+            }
+        });
+        s.pids.push(pid.as_u32());
+    }
+    Ok(by_exe.into_values().collect())
+}
 
 #[derive(Serialize)]
 pub struct Finding {
+    pub kind: &'static str,
+    /// Running processes behind this finding (to end them)
+    pub pids: Vec<u32>,
+    /// For startup entries: where it is registered and its identifier (to disable it)
+    pub source: Option<String>,
+    pub key: Option<String>,
     pub name: String,
     pub display: String,
     pub status: &'static str,
@@ -52,17 +149,18 @@ const LOLBINS: &[&str] = &[
     "cmd.exe /c", "cmd /c", "http://", "https://", "-encodedcommand", " -enc ",
 ];
 
-const USER_DIRS: &[(&str, u32, &str)] = &[
-    ("\\temp\\", 4, "thư mục tạm"),
-    ("\\appdata\\", 4, "thư mục AppData của người dùng"),
-    ("\\downloads\\", 4, "thư mục Downloads"),
-    ("\\users\\public\\", 4, "thư mục Public"),
-    ("$recycle.bin", 5, "Thùng rác"),
+/// (path fragment, score, Vietnamese label, English label)
+const USER_DIRS: &[(&str, u32, &str, &str)] = &[
+    ("\\temp\\", 4, "thư mục tạm", "a temp folder"),
+    ("\\appdata\\", 4, "thư mục AppData của người dùng", "the user's AppData folder"),
+    ("\\downloads\\", 4, "thư mục Downloads", "the Downloads folder"),
+    ("\\users\\public\\", 4, "thư mục Public", "the Public folder"),
+    ("$recycle.bin", 5, "Thùng rác", "the Recycle Bin"),
     // Linux / macOS
-    ("/tmp/", 4, "thư mục tạm"),
-    ("/var/tmp/", 4, "thư mục tạm"),
-    ("/dev/shm/", 5, "bộ nhớ chia sẻ /dev/shm"),
-    ("/downloads/", 4, "thư mục Downloads"),
+    ("/tmp/", 4, "thư mục tạm", "a temp folder"),
+    ("/var/tmp/", 4, "thư mục tạm", "a temp folder"),
+    ("/dev/shm/", 5, "bộ nhớ chia sẻ /dev/shm", "shared memory (/dev/shm)"),
+    ("/downloads/", 4, "thư mục Downloads", "the Downloads folder"),
 ];
 
 pub(crate) fn expand_env(s: &str) -> String {
@@ -178,7 +276,7 @@ fn sha256(path: &Path) -> Option<String> {
     Some(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
-fn analyze(s: &ServiceInfo) -> Finding {
+fn analyze(s: &Subject) -> Finding {
     let mut score = 0u32;
     let mut reasons: Vec<String> = Vec::new();
     let mut add = |pts: u32, why: String| {
@@ -206,64 +304,94 @@ fn analyze(s: &ServiceInfo) -> Finding {
 
         if !in_windows {
             if SYSTEM_NAMES.contains(&stem.as_str()) {
-                add(6, format!("Tên file \"{stem}.exe\" trùng tiến trình hệ thống nhưng nằm ngoài thư mục Windows — dấu hiệu giả mạo"));
+                add(6, tr(
+                    format!("Tên file \"{stem}.exe\" trùng tiến trình hệ thống nhưng nằm ngoài thư mục Windows — dấu hiệu giả mạo"),
+                    format!("File name \"{stem}.exe\" matches a system process but it is outside the Windows folder — a sign of impersonation"),
+                ));
             } else if SYSTEM_NAMES.iter().any(|n| edit_distance_le1(&stem, n)) {
-                add(5, format!("Tên file \"{stem}\" gần giống tên tiến trình hệ thống — có thể là cố tình đặt nhầm lẫn"));
+                add(5, tr(
+                    format!("Tên file \"{stem}\" gần giống tên tiến trình hệ thống — có thể là cố tình đặt nhầm lẫn"),
+                    format!("File name \"{stem}\" is almost identical to a system process name — possibly meant to be confused with it"),
+                ));
             }
-            for (frag, pts, label) in USER_DIRS {
+            for (frag, pts, vi, en) in USER_DIRS {
                 if plc.contains(frag) {
-                    add(*pts, format!("Chạy từ {label} — dịch vụ hợp lệ hiếm khi nằm ở đây"));
+                    add(*pts, tr(
+                        format!("Chạy từ {vi} — dịch vụ hợp lệ hiếm khi nằm ở đây"),
+                        format!("Runs from {en} — legitimate software rarely lives there"),
+                    ));
                     break;
                 }
             }
             if plc.contains("\\programdata\\") && !plc.contains("\\microsoft\\") {
-                add(2, "Chạy từ thư mục ProgramData".into());
+                add(2, tr("Chạy từ thư mục ProgramData", "Runs from the ProgramData folder"));
             }
             if p.parent().and_then(|x| x.parent()).is_none() {
-                add(3, "Nằm ngay ở thư mục gốc của ổ đĩa".into());
+                add(3, tr("Nằm ngay ở thư mục gốc của ổ đĩa", "Sits directly in the root of a drive"));
             }
         }
 
         if !p.exists() {
-            add(2, "File chương trình không còn tồn tại trên đĩa (dịch vụ mồ côi)".into());
-        } else if !in_windows {
+            add(2, tr(
+                "File chương trình không còn tồn tại trên đĩa (dịch vụ mồ côi)",
+                "The program file no longer exists on disk (orphaned entry)",
+            ));
+        } else if !in_windows && !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk")) {
+            // shortcuts (.lnk) carry no signature of their own, so they are not checked
             match signature(p) {
                 Sig::Signed => signed = Some(true),
                 Sig::Unsigned => {
                     signed = Some(false);
-                    add(2, "File chưa được ký số — không xác minh được nhà phát hành".into());
+                    add(2, tr(
+                        "File chưa được ký số — không xác minh được nhà phát hành",
+                        "File is not digitally signed — the publisher cannot be verified",
+                    ));
                 }
                 Sig::Invalid => {
                     signed = Some(false);
-                    add(5, "Chữ ký số KHÔNG hợp lệ — file có thể đã bị chỉnh sửa sau khi ký".into());
+                    add(5, tr(
+                        "Chữ ký số KHÔNG hợp lệ — file có thể đã bị chỉnh sửa sau khi ký",
+                        "The digital signature is NOT valid — the file may have been modified after signing",
+                    ));
                 }
                 Sig::Unknown => {}
             }
         }
         if looks_random(&stem) {
-            add(2, "Tên file trông như chuỗi ngẫu nhiên".into());
+            add(2, tr("Tên file trông như chuỗi ngẫu nhiên", "The file name looks like a random string"));
         }
     }
 
     let lc = binary.to_lowercase();
     if let Some(k) = LOLBINS.iter().find(|k| lc.contains(**k)) {
-        add(5, format!("Dòng lệnh dùng công cụ/hành vi thường bị lạm dụng (\"{}\")", k.trim()));
+        let k = k.trim();
+        add(5, tr(
+            format!("Dòng lệnh dùng công cụ/hành vi thường bị lạm dụng (\"{k}\")"),
+            format!("The command line uses a tool or behaviour that is often abused (\"{k}\")"),
+        ));
     }
     if looks_random(&s.name) {
-        add(2, "Tên dịch vụ trông như chuỗi ngẫu nhiên".into());
+        add(2, tr("Tên trông như chuỗi ngẫu nhiên", "The name looks like a random string"));
     }
     if unquoted {
-        add(1, "Đường dẫn chứa dấu cách nhưng không có dấu ngoặc kép (lỗ hổng leo thang đặc quyền)".into());
+        add(1, tr(
+            "Đường dẫn chứa dấu cách nhưng không có dấu ngoặc kép (lỗ hổng leo thang đặc quyền)",
+            "The path contains spaces but is not quoted (a privilege-escalation weakness)",
+        ));
     }
-    if !in_windows && s.description.is_none() {
-        add(1, "Không có mô tả".into());
+    if s.kind == "service" && !in_windows && s.description.is_none() {
+        add(1, tr("Không có mô tả", "No description"));
     }
-    if !in_windows
+    if s.kind == "service"
+        && !in_windows
         && !in_program_files
         && s.account.as_deref().is_some_and(|a| a.eq_ignore_ascii_case("localsystem"))
         && path.is_some()
     {
-        add(1, "Chạy với quyền SYSTEM từ vị trí ngoài Program Files/Windows".into());
+        add(1, tr(
+            "Chạy với quyền SYSTEM từ vị trí ngoài Program Files/Windows",
+            "Runs as SYSTEM from a location outside Program Files/Windows",
+        ));
     }
 
     if score >= 2 {
@@ -271,6 +399,10 @@ fn analyze(s: &ServiceInfo) -> Finding {
     }
 
     Finding {
+        kind: s.kind,
+        pids: s.pids.clone(),
+        source: s.source.clone(),
+        key: s.key.clone(),
         name: s.name.clone(),
         display: s.display.clone(),
         status: s.status,
@@ -284,8 +416,15 @@ fn analyze(s: &ServiceInfo) -> Finding {
     }
 }
 
-pub fn scan() -> Result<Vec<Finding>, String> {
-    let mut v: Vec<Finding> = services::list()?.iter().map(analyze).collect();
+/// Scan one category: "service", "process" or "startup".
+pub fn scan(kind: &str) -> Result<Vec<Finding>, String> {
+    let subjects: Vec<Subject> = match kind {
+        "service" => services::list()?.iter().map(Subject::from).collect(),
+        "process" => running_subjects()?,
+        "startup" => startup::list()?.iter().map(Subject::from).collect(),
+        _ => return Err(tr(format!("Loại quét không hợp lệ: {kind}"), format!("Invalid scan type: {kind}"))),
+    };
+    let mut v: Vec<Finding> = subjects.iter().map(analyze).collect();
     v.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.display.cmp(&b.display)));
     Ok(v)
 }
