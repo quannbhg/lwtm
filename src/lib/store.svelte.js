@@ -2,18 +2,35 @@ import { invoke } from "@tauri-apps/api/core";
 import { assessAll } from "./critical.js";
 import { confirmDialog } from "./dialog.svelte.js";
 import { settings } from "./settings.svelte.js";
+import { t } from "./i18n.svelte.js";
 
 export const HISTORY = 60;
 
-export const app = $state({
-  snap: null,
-  error: "",
+// `snap` and `extras` are replaced wholesale every poll and never mutated in place, so they use
+// $state.raw: no deep reactive proxies get built for the ~300 process objects each second,
+// which keeps both memory and garbage-collection churn low.
+/** How long an error toast stays on screen */
+const ERROR_MS = 5000;
+let errorTimer;
+
+/** Show an error toast that disappears by itself; pass "" to clear it. */
+export function setError(message) {
+  clearTimeout(errorTimer);
+  app.error = message;
+  if (message) errorTimer = setTimeout(() => (app.error = ""), ERROR_MS);
+}
+
+class AppState {
+  snap = $state.raw(null);
+  error = $state("");
   /** exe path -> { description, icon } */
-  meta: {},
+  meta = $state({});
   /** pid -> { platform, priority, efficiency } (only filled when a view needs it and calls refreshExtras) */
-  extras: {},
-  history: { cpu: [], mem: [], disk: [], net: [] },
-});
+  extras = $state.raw({});
+  history = $state({ cpu: [], mem: [], disk: [], net: [] });
+}
+
+export const app = new AppState();
 
 const requested = new Set();
 
@@ -46,7 +63,7 @@ export async function refresh() {
     push(h.net, s.net_rx + s.net_tx);
     loadMeta(s);
   } catch (e) {
-    app.error = String(e);
+    setError(String(e));
   }
 }
 
@@ -63,9 +80,9 @@ export async function refreshExtras() {
 export async function killPids(pids) {
   try {
     await invoke("kill_processes", { pids });
-    app.error = "";
+    setError("");
   } catch (e) {
-    app.error = String(e);
+    setError(String(e));
   }
   refresh();
 }
@@ -86,29 +103,29 @@ export function goto(tab, focusPid = null) {
 export async function endTasks(procs, label) {
   const { level, flagged } = assessAll(procs);
   const n = procs.length;
-  const what = `"${label}"${n > 1 ? ` (${n} tiến trình)` : ""}`;
+  const what = `"${label}"${n > 1 ? ` (${t("{n} tiến trình", { n })})` : ""}`;
   const ok = await confirmDialog(
     level === "critical"
       ? {
-          title: "Đây là tiến trình quan trọng của hệ thống",
-          message: `Kết thúc ${what} có thể làm Windows sập (màn hình xanh), tự khởi động lại hoặc đăng xuất ngay lập tức. Dữ liệu chưa lưu sẽ mất.`,
+          title: t("Đây là tiến trình quan trọng của hệ thống"),
+          message: t("Kết thúc {what} có thể làm Windows sập (màn hình xanh), tự khởi động lại hoặc đăng xuất ngay lập tức. Dữ liệu chưa lưu sẽ mất.", { what }),
           details: flagged.map((f) => `${f.name} — ${f.why}`).slice(0, 5),
           level,
-          okLabel: "Vẫn kết thúc",
+          okLabel: t("Vẫn kết thúc"),
           requireAck: true,
         }
       : level === "caution"
         ? {
-            title: "Thành phần hệ thống",
-            message: `${what} là một phần của hệ điều hành. Kết thúc nó có thể làm mất một số tính năng cho đến khi khởi động lại.`,
+            title: t("Thành phần hệ thống"),
+            message: t("{what} là một phần của hệ điều hành. Kết thúc nó có thể làm mất một số tính năng cho đến khi khởi động lại.", { what }),
             details: flagged.map((f) => `${f.name} — ${f.why}`).slice(0, 5),
             level,
-            okLabel: "Kết thúc",
+            okLabel: t("Kết thúc"),
           }
         : {
-            title: "Kết thúc tác vụ?",
-            message: `Kết thúc ${what}? Dữ liệu chưa lưu có thể bị mất.`,
-            okLabel: "Kết thúc",
+            title: t("Kết thúc tác vụ?"),
+            message: t("Kết thúc {what}? Dữ liệu chưa lưu có thể bị mất.", { what }),
+            okLabel: t("Kết thúc"),
           },
   );
   if (!ok) return false;
@@ -119,9 +136,9 @@ export async function endTasks(procs, label) {
 async function run(cmd, args) {
   try {
     await invoke(cmd, args);
-    app.error = "";
+    setError("");
   } catch (e) {
-    app.error = String(e);
+    setError(String(e));
   }
 }
 
@@ -130,11 +147,11 @@ export async function setEfficiency(procs, label, enabled) {
   const { level, flagged } = assessAll(procs);
   if (enabled && level) {
     const ok = await confirmDialog({
-      title: "Bật chế độ tiết kiệm cho thành phần hệ thống?",
-      message: `"${label}" thuộc hệ điều hành. Giảm ưu tiên của nó có thể làm giao diện hoặc âm thanh bị giật.`,
+      title: t("Bật chế độ tiết kiệm cho thành phần hệ thống?"),
+      message: t('"{label}" thuộc hệ điều hành. Giảm ưu tiên của nó có thể làm giao diện hoặc âm thanh bị giật.', { label }),
       details: flagged.map((f) => `${f.name} — ${f.why}`).slice(0, 5),
       level: "caution",
-      okLabel: "Vẫn bật",
+      okLabel: t("Vẫn bật"),
     });
     if (!ok) return;
   }
@@ -145,13 +162,13 @@ export async function setEfficiency(procs, label, enabled) {
 export async function setPriority(procs, label, priority) {
   if (priority === "realtime" || priority === "high") {
     const ok = await confirmDialog({
-      title: priority === "realtime" ? "Ưu tiên thời gian thực rất nguy hiểm" : "Đặt ưu tiên cao?",
+      title: priority === "realtime" ? t("Ưu tiên thời gian thực rất nguy hiểm") : t("Đặt ưu tiên cao?"),
       message:
         priority === "realtime"
-          ? `Đặt "${label}" ở mức Realtime có thể làm cả máy treo cứng vì nó giành quyền trước cả chuột, bàn phím và hệ thống.`
-          : `Ưu tiên cao cho "${label}" sẽ làm các ứng dụng khác chậm đi khi nó bận.`,
+          ? t('Đặt "{label}" ở mức Realtime có thể làm cả máy treo cứng vì nó giành quyền trước cả chuột, bàn phím và hệ thống.', { label })
+          : t('Ưu tiên cao cho "{label}" sẽ làm các ứng dụng khác chậm đi khi nó bận.', { label }),
       level: priority === "realtime" ? "critical" : "caution",
-      okLabel: "Đặt ưu tiên",
+      okLabel: t("Đặt ưu tiên"),
       requireAck: priority === "realtime",
     });
     if (!ok) return;

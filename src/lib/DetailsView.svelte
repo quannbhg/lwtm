@@ -3,6 +3,7 @@
   import { app, nav, endTasks, setEfficiency, setPriority, refreshExtras } from "./store.svelte.js";
   import { fmtBytes } from "./format.js";
   import { createVirtual } from "./virtual.svelte.js";
+  import { t } from "./i18n.svelte.js";
 
   const PRIORITIES = [
     ["realtime", "Thời gian thực"],
@@ -73,43 +74,41 @@
       tick().then(() => vl.scrollTo(rows.findIndex((p) => p.pid === selectedPid)));
     }
     refreshExtras();
-    const t = setInterval(() => !document.hidden && refreshExtras(), 2000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => !document.hidden && refreshExtras(), 2000);
+    return () => clearInterval(timer);
   });
 </script>
 
 <section class="view">
   <div class="toolbar">
-    <h2>Chi tiết</h2>
-    <input type="search" placeholder="Tìm theo tên, PID hoặc người dùng…" bind:value={query} />
+    <h2>{t("Chi tiết")}</h2>
+    <input type="search" placeholder={t("Tìm theo tên, PID hoặc người dùng…")} bind:value={query} />
   </div>
   <div class="toolbar">
-    <button class="primary" disabled={!current} onclick={end}>Kết thúc tác vụ</button>
+    <button class="primary" disabled={!current} onclick={end}>{t("Kết thúc tác vụ")}</button>
     <button class="btn" disabled={!current || !currentExtra} onclick={toggleEfficiency}>
-      🌿 {currentExtra?.efficiency ? "Tắt chế độ tiết kiệm" : "Chế độ tiết kiệm"}
+      🌿 {currentExtra?.efficiency ? t("Tắt chế độ tiết kiệm") : t("Chế độ tiết kiệm")}
     </button>
     <select class="btn" disabled={!current || !currentExtra} onchange={changePriority} value="">
-      <option value="">Đặt độ ưu tiên…</option>
-      {#each PRIORITIES as [k, label] (k)}<option value={k}>{label}</option>{/each}
+      <option value="">{t("Đặt độ ưu tiên…")}</option>
+      {#each PRIORITIES as [k, label] (k)}<option value={k}>{t(label)}</option>{/each}
     </select>
-    <span class="hint">{rows.length} tiến trình · cần quyền Administrator để đổi tiến trình của hệ thống</span>
+    <span class="hint">{t("{n} tiến trình · cần quyền Administrator để đổi tiến trình của hệ thống", { n: rows.length })}</span>
   </div>
-
-  {#if app.error}<p class="error">{app.error}</p>{/if}
 
   <div class="table-wrap" use:vl.action>
     <table class="det">
       <thead>
         <tr>
-          <th class="l"><button onclick={() => sortBy("name")}>Tên{arrow("name")}</button></th>
+          <th class="l"><button onclick={() => sortBy("name")}>{t("Tên")}{arrow("name")}</button></th>
           <th class="num"><button onclick={() => sortBy("pid")}>PID{arrow("pid")}</button></th>
-          <th class="l">Trạng thái</th>
-          <th class="l"><button onclick={() => sortBy("user")}>Người dùng{arrow("user")}</button></th>
+          <th class="l">{t("Trạng thái")}</th>
+          <th class="l"><button onclick={() => sortBy("user")}>{t("Người dùng")}{arrow("user")}</button></th>
           <th class="num"><button onclick={() => sortBy("cpu")}>CPU{arrow("cpu")}</button></th>
-          <th class="num"><button onclick={() => sortBy("memory")}>Bộ nhớ{arrow("memory")}</button></th>
-          <th class="l">Nền tảng</th>
-          <th class="l">Ưu tiên</th>
-          <th class="l">Tiết kiệm</th>
+          <th class="num"><button onclick={() => sortBy("memory")}>{t("Bộ nhớ")}{arrow("memory")}</button></th>
+          <th class="l">{t("Nền tảng")}</th>
+          <th class="l">{t("Ưu tiên")}</th>
+          <th class="l">{t("Tiết kiệm")}</th>
         </tr>
       </thead>
       <tbody>
@@ -125,13 +124,13 @@
               </span>
             </td>
             <td class="num">{p.pid}</td>
-            <td>{STATUS[p.status] ?? p.status}</td>
+            <td>{STATUS[p.status] ? t(STATUS[p.status]) : p.status}</td>
             <td><span class="label">{p.user ?? ""}</span></td>
             <td class="num">{p.cpu.toFixed(1)}%</td>
             <td class="num">{fmtBytes(p.memory)}</td>
             <td>{x?.platform ?? ""}</td>
-            <td>{x ? PRIO_LABEL[x.priority] : ""}</td>
-            <td>{x?.efficiency ? "🌿 Bật" : ""}</td>
+            <td>{x ? t(PRIO_LABEL[x.priority]) : ""}</td>
+            <td>{x?.efficiency ? `🌿 ${t("Bật")}` : ""}</td>
           </tr>
         {/each}
         {#if r.padBottom}<tr class="pad" style="height:{r.padBottom}px"><td colspan="9"></td></tr>{/if}
