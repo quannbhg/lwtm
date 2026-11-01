@@ -13,7 +13,10 @@ The goal is simple: a task manager that is genuinely light, easy to understand a
 - **Performance** – live CPU, memory, disk and network charts, plus per-core usage.
 - **Services** – list, start, stop and restart services (Windows SCM, Linux systemd).
 - **Startup apps** – enable or disable apps that start with the system.
-- **Security** – scans services for suspicious signs (unusual install paths, system-name impersonation, missing or invalid digital signature, risky command lines) with a one-click VirusTotal lookup.
+- **History** – a background watcher records CPU, RAM, disk and network every 10 seconds for 24 hours (even while the app sits in the tray) and lists the periods when the machine was overloaded, with the applications responsible. Data stays on your machine.
+- **Alerts** – a notification when CPU or RAM stays above a threshold for a configurable time (off-able in Settings).
+- **Security** – scans services, running applications and startup entries for suspicious signs (unusual install paths, system-name impersonation, missing or invalid digital signature, risky command lines) with a one-click VirusTotal lookup, and lets you stop the service, end the process or disable the startup entry.
+- **Languages** – Vietnamese and English (UI, notifications and error messages).
 - **Efficiency mode** – lowers a process's priority and enables power throttling (Windows) or sets the lowest `nice` value (Linux/macOS).
 - **Tray mini-widget** – click the tray icon for a small always-on-top view of CPU, RAM, disk, network and the busiest app.
 - **Quick search** – press `Ctrl+K` inside the app to jump to a tab, a process or a service.
@@ -78,6 +81,8 @@ Bundles are written to `src-tauri/target/release/bundle/`.
 
 - **Administrator rights.** Ending system processes, controlling services and changing priority of protected processes need elevated rights. The Settings tab shows the current state and offers "Restart as administrator" in release builds. In development, start your terminal as administrator and run `npm run tauri dev`.
 - **Close to tray.** By default, closing the window hides the app to the system tray so the mini-widget keeps working. Use the tray menu to quit, or change this in Settings.
+- **Memory use.** Each window owns a WebView renderer process, which is where most memory goes. The mini-widget is only created when you click the tray icon and is destroyed 30 seconds after it hides. The main window is destroyed 60 seconds after you send it to the tray (it is re-created when you open it again), so a tray-only app is just the small Rust process. When started with the system (`--minimized`), no window is created at all.
+- **Background monitoring.** History and alerts run in the Rust process, so they keep working while the window is closed. They sample every 10 seconds and can be switched off in Settings. History is stored in the app data folder as `history.json`.
 - **Efficiency mode is not persistent.** It applies to the running process only and resets when that process restarts.
 - **`Ctrl+K`** works while the app window is focused; it is not a global shortcut.
 
@@ -105,9 +110,6 @@ src-tauri/
 
 ## Roadmap
 
-- Vietnamese/English localization
-- History for "Why is my PC slow?"
-- Proactive notifications when the machine is overloaded
 - Per-process network usage and GPU/temperature
 - Full macOS support (services, startup apps, icons)
 - Code signing and auto-update
