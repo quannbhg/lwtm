@@ -45,6 +45,57 @@ pub struct MiniState {
     /// Bumped on every show/hide so stale "destroy later" timers can tell they were superseded.
     main_gen: AtomicU64,
     mini_gen: AtomicU64,
+    /// Whether the desktop actually shows tray icons. Without one, hiding the window would strand the user.
+    tray_ok: AtomicBool,
+    /// When this module last destroyed a window itself (idle clean-up), see [`should_prevent_exit`].
+    internal_destroy: Mutex<Option<Instant>>,
+}
+
+/// Does this desktop show tray icons? Windows and macOS always do; on Linux it needs a
+/// StatusNotifier host (KDE, Xfce, GNOME with the AppIndicator extension…). Stock GNOME has none.
+#[cfg(target_os = "linux")]
+fn tray_supported() -> bool {
+    use std::process::Command;
+    ["org.kde.StatusNotifierWatcher", "org.freedesktop.StatusNotifierWatcher"].iter().any(|name| {
+        Command::new("gdbus")
+            .args([
+                "call",
+                "--session",
+                "--dest",
+                "org.freedesktop.DBus",
+                "--object-path",
+                "/org/freedesktop/DBus",
+                "--method",
+                "org.freedesktop.DBus.NameHasOwner",
+                name,
+            ])
+            .output()
+            // if gdbus is missing we cannot tell, and the safe answer is "no tray"
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("true"))
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn tray_supported() -> bool {
+    true
+}
+
+pub fn tray_available(app: &AppHandle) -> bool {
+    app.state::<MiniState>().tray_ok.load(Ordering::Relaxed)
+}
+
+/// The app has to outlive its windows (they are destroyed when idle), so "last window closed" must
+/// not quit it. But a real quit request (Cmd+Q, Dock → Quit, session end) also arrives without an
+/// exit code, so only the exit requests that follow our own clean-up are blocked.
+pub fn should_prevent_exit(app: &AppHandle) -> bool {
+    if !tray_available(app) {
+        return false; // no tray: closing the last window really means quit
+    }
+    app.state::<MiniState>()
+        .internal_destroy
+        .lock()
+        .unwrap()
+        .is_some_and(|t| t.elapsed() < Duration::from_secs(3))
 }
 
 /// User preferences the Rust side needs to know (sent by the frontend at startup and on change).
@@ -81,6 +132,7 @@ fn destroy_later(app: &AppHandle, label: &'static str, secs: u64) {
         }
         if let Some(w) = app.get_webview_window(label) {
             if !w.is_visible().unwrap_or(true) {
+                *app.state::<MiniState>().internal_destroy.lock().unwrap() = Some(Instant::now());
                 let _ = w.destroy();
             }
         }
@@ -95,11 +147,13 @@ fn create_main(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .first()
         .cloned()
         .ok_or_else(|| tauri::Error::WindowNotFound)?;
-    WebviewWindowBuilder::from_config(app, &cfg)?.build()
+    let w = WebviewWindowBuilder::from_config(app, &cfg)?.build()?;
+    crate::memory::low_memory(&w);
+    Ok(w)
 }
 
 fn create_mini(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    WebviewWindowBuilder::new(app, MINI_LABEL, WebviewUrl::App("index.html".into()))
+    let w = WebviewWindowBuilder::new(app, MINI_LABEL, WebviewUrl::App("index.html".into()))
         .title("Mini")
         .inner_size(280.0, 168.0)
         .decorations(false)
@@ -107,7 +161,9 @@ fn create_mini(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .skip_taskbar(true)
         .resizable(false)
         .visible(false)
-        .build()
+        .build()?;
+    crate::memory::low_memory(&w);
+    Ok(w)
 }
 
 pub fn show_main(app: &AppHandle) {
@@ -203,7 +259,9 @@ fn toggle_mini(app: &AppHandle, anchor: Option<PhysicalPosition<f64>>) {
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     match (window.label(), event) {
         (MAIN_LABEL, WindowEvent::CloseRequested { api, .. }) => {
-            if window.state::<Prefs>().close_to_tray.load(Ordering::Relaxed) {
+            // Only hide to the tray when there is a tray to bring the window back from
+            let can_hide = window.state::<Prefs>().close_to_tray.load(Ordering::Relaxed) && tray_available(window.app_handle());
+            if can_hide {
                 api.prevent_close();
                 let _ = window.hide();
                 destroy_later(window.app_handle(), MAIN_LABEL, MAIN_IDLE_SECS);
@@ -245,6 +303,21 @@ pub fn refresh_labels(app: &AppHandle) {
 }
 
 pub fn setup(app: &mut App) -> tauri::Result<()> {
+    let tray_ok = tray_supported();
+    app.state::<MiniState>().tray_ok.store(tray_ok, Ordering::Relaxed);
+    if tray_ok {
+        build_tray(app)?;
+    }
+
+    // Started with the system: stay in the tray without creating any window (no renderer = minimal memory).
+    // Without a tray that would leave nothing on screen at all, so the window is created anyway.
+    if !(std::env::args().any(|a| a == "--minimized") && tray_ok) {
+        create_main(app.handle())?;
+    }
+    Ok(())
+}
+
+fn build_tray(app: &mut App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", label("Mở Task Manager", "Open Task Manager"), true, None::<&str>)?;
     let mini = MenuItem::with_id(app, "mini", label("Hiện/ẩn mini-widget", "Show/hide mini-widget"), true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", label("Thoát", "Quit"), true, None::<&str>)?;
@@ -276,10 +349,5 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
         tray = tray.icon(icon.clone());
     }
     tray.build(app)?;
-
-    // Started with the system: stay in the tray without creating any window (no renderer = minimal memory)
-    if !std::env::args().any(|a| a == "--minimized") {
-        create_main(app.handle())?;
-    }
     Ok(())
 }
