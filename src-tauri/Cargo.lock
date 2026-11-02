@@ -2025,6 +2025,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-notification",
+ "webview2-com",
  "windows",
  "winreg",
 ]

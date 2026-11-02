@@ -1,6 +1,9 @@
 mod admin;
 mod appmeta;
 mod i18n;
+mod memory;
+mod metrics;
+mod netmon;
 mod procctl;
 mod security;
 mod services;
@@ -91,6 +94,9 @@ fn get_snapshot(app: tauri::AppHandle, state: State<SysState>) -> Snapshot {
 
     let cpu_count = sys.cpus().len().max(1);
     let users = &m.users;
+    // Task Manager-style memory (private working set) on Windows; sysinfo's number elsewhere
+    let pids: Vec<u32> = sys.processes().keys().map(|p| p.as_u32()).collect();
+    let private = memory::private_working_set(&pids);
     let processes: Vec<ProcessInfo> = sys
         .processes()
         .iter()
@@ -104,7 +110,7 @@ fn get_snapshot(app: tauri::AppHandle, state: State<SysState>) -> Snapshot {
                 user: p.user_id().and_then(|u| users.get_user_by_id(u)).map(|u| u.name().to_string()),
                 status: p.status().to_string(),
                 cpu: p.cpu_usage() / cpu_count as f32,
-                memory: p.memory(),
+                memory: private.get(&pid.as_u32()).copied().unwrap_or_else(|| p.memory()),
                 disk_read: d.read_bytes as f64 / secs,
                 disk_write: d.written_bytes as f64 / secs,
             }
@@ -267,6 +273,36 @@ fn set_close_to_tray(enabled: bool, prefs: State<tray::Prefs>) {
     prefs.close_to_tray.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// GPU, temperatures and disk active time (each field is None when the system does not expose it).
+#[tauri::command(async)]
+fn get_hardware() -> metrics::Hardware {
+    metrics::hardware()
+}
+
+/// Per-process live I/O that the snapshot does not carry: GPU use and network rates.
+#[derive(Serialize)]
+struct ProcIo {
+    gpu: metrics::ProcGpu,
+    net: netmon::NetRates,
+}
+
+#[tauri::command(async)]
+fn get_process_io() -> ProcIo {
+    ProcIo { gpu: metrics::process_gpu(), net: netmon::per_process() }
+}
+
+/// Memory used by this app itself (Rust process + WebView processes), measured the Task Manager way.
+#[tauri::command(async)]
+fn get_self_usage() -> Option<memory::SelfUsage> {
+    memory::self_usage()
+}
+
+/// False on desktops without a tray (stock GNOME): the "hide to tray" option cannot work there.
+#[tauri::command]
+fn tray_available(app: tauri::AppHandle) -> bool {
+    tray::tray_available(&app)
+}
+
 #[tauri::command]
 fn show_main_window(app: tauri::AppHandle) {
     tray::show_main(&app);
@@ -325,6 +361,10 @@ pub fn run() {
             set_autostart,
             set_close_to_tray,
             show_main_window,
+            tray_available,
+            get_self_usage,
+            get_hardware,
+            get_process_io,
             mini_ready,
             watch::get_history,
             watch::clear_history,
@@ -335,10 +375,20 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
-            // Windows are destroyed when idle, so "no windows left" must not quit the app:
-            // it keeps living in the tray. Explicit exits (tray "Quit") carry an exit code and still work.
-            tauri::RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
-            tauri::RunEvent::Exit => watch::flush(app),
+            // Windows are destroyed when idle, so the "no windows left" that follows must not quit the
+            // app: it keeps living in the tray. Real quits (tray "Quit", Cmd+Q, Dock → Quit) still work.
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
+                if code.is_none() && tray::should_prevent_exit(app) {
+                    api.prevent_exit();
+                }
+            }
+            // macOS: clicking the Dock icon while no window is open should bring the window back
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => tray::show_main(app),
+            tauri::RunEvent::Exit => {
+                watch::flush(app);
+                netmon::shutdown();
+            }
             _ => {}
         });
 }
