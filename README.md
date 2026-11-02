@@ -34,8 +34,15 @@ The goal is simple: a task manager that is genuinely light, easy to understand a
 | Services | ✅ | ✅ (systemd) | ⬜ not yet |
 | Startup apps | ✅ | ✅ (`~/.config/autostart`) | ⬜ not yet |
 | Digital signature check | ✅ | – | – |
+| GPU usage and memory | ✅ (performance counters) | ✅ NVIDIA (`nvidia-smi`), AMD (sysfs) | ✅ best effort (`ioreg`) |
+| Per-process GPU | ✅ | ✅ NVIDIA only | – |
+| Per-process network | ✅ needs administrator rights (ETW) | ✅ TCP only, own processes (`ss`) | ✅ (`nettop`) |
+| Disk active time | ✅ | ✅ | – |
+| Temperatures | ⚠️ often needs administrator rights | ✅ if the kernel exposes sensors | ⚠️ depends on the Mac |
 
-Windows is the most complete and the one tested by hand. The Linux build compiles (checked in a Debian container) but has not been run on a real machine. macOS is not built or tested yet; the CI workflow is the first attempt.
+Windows is the most complete and the one tested by hand. The Linux build compiles (checked in a Debian container) and macOS builds in CI, but neither has been run on a real machine yet. Every hardware reading is best effort: when the system does not expose a value the column shows "—" and a tooltip says why.
+
+On desktops without a system tray (stock GNOME), "close to tray" is disabled and closing the window quits the app, so the window can never get stranded.
 
 ## Tech stack
 
@@ -110,7 +117,6 @@ src-tauri/
 
 ## Roadmap
 
-- Per-process network usage and GPU/temperature
 - Full macOS support (services, startup apps, icons)
 - Code signing and auto-update
 - Unit tests for the security scoring and critical-process logic
