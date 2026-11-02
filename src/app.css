@@ -68,13 +68,16 @@ th small { color: var(--muted); font-weight: 400; }
 th.namecol { text-align: left; }
 th.namecol button { align-items: flex-start; color: var(--muted); }
 .namecol { width: auto; }
-.num { width: 110px; text-align: right; font-variant-numeric: tabular-nums; }
+.num { width: 104px; text-align: right; font-variant-numeric: tabular-nums; }
+.procs th.num:nth-last-child(1) { width: 80px; }
 tbody tr { cursor: default; }
 tbody tr.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
 tbody tr.child .label { color: var(--muted); }
 .c-cpu  { background: color-mix(in srgb, var(--accent) calc(var(--c) * 40%), transparent); }
 .c-mem  { background: color-mix(in srgb, var(--accent) calc(var(--m) * 40%), transparent); }
 .c-disk { background: color-mix(in srgb, var(--accent) calc(var(--d) * 40%), transparent); }
+.c-net  { background: color-mix(in srgb, var(--accent) calc(var(--n) * 40%), transparent); }
+.c-gpu  { background: color-mix(in srgb, var(--accent) calc(var(--g) * 40%), transparent); }
 
 .name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -215,14 +218,17 @@ tbody tr:not(.pad) td { height: 34px; }
 .det th.num { text-align: right; }
 .det th button { flex-direction: row; align-items: center; width: auto; color: var(--muted); font-weight: 600; }
 .det td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.det th:nth-child(1) { width: 26%; }
-.det th:nth-child(2), .det th:nth-child(5) { width: 70px; }
-.det th:nth-child(3) { width: 100px; }
-.det th:nth-child(4) { width: 14%; }
-.det th:nth-child(6) { width: 90px; }
-.det th:nth-child(7) { width: 80px; }
-.det th:nth-child(8) { width: 140px; }
-.det th:nth-child(9) { width: 90px; }
+/* Name, PID, Status, User, CPU, Memory, Network, GPU, Platform, Priority, Efficiency */
+.det th:nth-child(1) { width: 22%; }
+.det th:nth-child(2), .det th:nth-child(5) { width: 64px; }
+.det th:nth-child(3) { width: 90px; }
+.det th:nth-child(4) { width: 12%; }
+.det th:nth-child(6) { width: 84px; }
+.det th:nth-child(7) { width: 96px; }
+.det th:nth-child(8) { width: 64px; }
+.det th:nth-child(9) { width: 76px; }
+.det th:nth-child(10) { width: 130px; }
+.det th:nth-child(11) { width: 84px; }
 
 /* ---- Security ---- */
 .subtabs { display: flex; gap: 6px; }
@@ -269,6 +275,7 @@ tbody tr:not(.pad) td { height: 34px; }
 .mini { height: 44px; }
 .detail { flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
 .big { height: 200px; margin-top: 12px; }
+.mid { height: 64px; }
 .hint { color: var(--muted); font-size: 12px; margin: 8px 0; }
 .model { color: var(--muted); margin: 4px 0 0; }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 24px; margin: 12px 0; }

@@ -27,6 +27,8 @@ class AppState {
   meta = $state({});
   /** pid -> { platform, priority, efficiency } (only filled when a view needs it and calls refreshExtras) */
   extras = $state.raw({});
+  /** Per-process GPU use and network rates (only polled while a view that shows them is open) */
+  io = $state.raw({ gpu: { usage: {}, supported: false }, net: { rates: {}, supported: false, needs_admin: false } });
   history = $state({ cpu: [], mem: [], disk: [], net: [] });
 }
 
@@ -62,9 +64,33 @@ export async function refresh() {
     push(h.disk, s.disk_read + s.disk_write);
     push(h.net, s.net_rx + s.net_tx);
     loadMeta(s);
+    if (ioUsers > 0) refreshIo(); // not awaited: it must not delay the next snapshot
   } catch (e) {
     setError(String(e));
   }
+}
+
+let ioUsers = 0;
+let ioBusy = false;
+
+/** A view that shows per-process GPU/network calls this on mount and the returned function on destroy. */
+export function useIo() {
+  ioUsers++;
+  refreshIo();
+  return () => {
+    ioUsers = Math.max(0, ioUsers - 1);
+  };
+}
+
+async function refreshIo() {
+  if (ioBusy) return;
+  ioBusy = true;
+  try {
+    app.io = await invoke("get_process_io");
+  } catch (e) {
+    console.error(e);
+  }
+  ioBusy = false;
 }
 
 /** Fetch platform / priority / efficiency mode for every current process */

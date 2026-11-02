@@ -1,7 +1,7 @@
 <script>
   import { onMount, tick } from "svelte";
-  import { app, nav, endTasks, setEfficiency, setPriority, refreshExtras } from "./store.svelte.js";
-  import { fmtBytes } from "./format.js";
+  import { app, nav, endTasks, setEfficiency, setPriority, refreshExtras, useIo } from "./store.svelte.js";
+  import { fmtBytes, fmtRate } from "./format.js";
   import { createVirtual } from "./virtual.svelte.js";
   import { t } from "./i18n.svelte.js";
 
@@ -24,9 +24,11 @@
 
   let rows = $derived.by(() => {
     const q = query.trim().toLowerCase();
-    const list = (app.snap?.processes ?? []).filter(
-      (p) => !q || p.name.toLowerCase().includes(q) || String(p.pid) === q || (p.user ?? "").toLowerCase().includes(q),
-    );
+    const rates = app.io.net.rates;
+    const gpu = app.io.gpu.usage;
+    const list = (app.snap?.processes ?? [])
+      .filter((p) => !q || p.name.toLowerCase().includes(q) || String(p.pid) === q || (p.user ?? "").toLowerCase().includes(q))
+      .map((p) => ({ ...p, net: rates[p.pid] ? rates[p.pid][0] + rates[p.pid][1] : 0, gpu: gpu[p.pid] ?? 0 }));
     const val = (p) => (sortKey === "name" ? p.name.toLowerCase() : sortKey === "user" ? (p.user ?? "") : p[sortKey]);
     return list.sort((a, b) => {
       const x = val(a), y = val(b);
@@ -74,9 +76,18 @@
       tick().then(() => vl.scrollTo(rows.findIndex((p) => p.pid === selectedPid)));
     }
     refreshExtras();
+    const stopIo = useIo();
     const timer = setInterval(() => !document.hidden && refreshExtras(), 2000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      stopIo();
+    };
   });
+
+  const netHint = $derived(
+    app.io.net.supported ? "" : app.io.net.needs_admin ? t("Cần chạy với quyền quản trị để đo mạng từng tiến trình") : t("Hệ điều hành này không cung cấp dữ liệu này"),
+  );
+  const gpuHint = $derived(app.io.gpu.supported ? "" : t("Hệ điều hành này không cung cấp dữ liệu này"));
 </script>
 
 <section class="view">
@@ -106,13 +117,15 @@
           <th class="l"><button onclick={() => sortBy("user")}>{t("Người dùng")}{arrow("user")}</button></th>
           <th class="num"><button onclick={() => sortBy("cpu")}>CPU{arrow("cpu")}</button></th>
           <th class="num"><button onclick={() => sortBy("memory")}>{t("Bộ nhớ")}{arrow("memory")}</button></th>
+          <th class="num" title={netHint}><button onclick={() => sortBy("net")}>{t("Mạng")}{arrow("net")}</button></th>
+          <th class="num" title={gpuHint}><button onclick={() => sortBy("gpu")}>GPU{arrow("gpu")}</button></th>
           <th class="l">{t("Nền tảng")}</th>
           <th class="l">{t("Ưu tiên")}</th>
           <th class="l">{t("Tiết kiệm")}</th>
         </tr>
       </thead>
       <tbody>
-        {#if r.padTop}<tr class="pad" style="height:{r.padTop}px"><td colspan="9"></td></tr>{/if}
+        {#if r.padTop}<tr class="pad" style="height:{r.padTop}px"><td colspan="11"></td></tr>{/if}
         {#each visible as p (p.pid)}
           {@const x = extras[p.pid]}
           <tr class:sel={selectedPid === p.pid} onclick={() => (selectedPid = p.pid)}>
@@ -128,12 +141,14 @@
             <td><span class="label">{p.user ?? ""}</span></td>
             <td class="num">{p.cpu.toFixed(1)}%</td>
             <td class="num">{fmtBytes(p.memory)}</td>
+            <td class="num" title={netHint}>{app.io.net.supported ? fmtRate(p.net) : "—"}</td>
+            <td class="num" title={gpuHint}>{app.io.gpu.supported ? `${p.gpu.toFixed(p.gpu > 0 && p.gpu < 10 ? 1 : 0)}%` : "—"}</td>
             <td>{x?.platform ?? ""}</td>
             <td>{x ? t(PRIO_LABEL[x.priority]) : ""}</td>
             <td>{x?.efficiency ? `🌿 ${t("Bật")}` : ""}</td>
           </tr>
         {/each}
-        {#if r.padBottom}<tr class="pad" style="height:{r.padBottom}px"><td colspan="9"></td></tr>{/if}
+        {#if r.padBottom}<tr class="pad" style="height:{r.padBottom}px"><td colspan="11"></td></tr>{/if}
       </tbody>
     </table>
   </div>

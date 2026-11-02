@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { createVirtual } from "./virtual.svelte.js";
-  import { app, endTasks, setEfficiency, refreshExtras } from "./store.svelte.js";
+  import { app, endTasks, setEfficiency, refreshExtras, useIo } from "./store.svelte.js";
   import { groupProcesses } from "./groups.js";
   import { diagnose } from "./diagnose.js";
   import { fmtBytes, fmtRate } from "./format.js";
@@ -16,7 +16,8 @@
   let showDiag = $state(true);
   const open = new SvelteSet();
 
-  let allGroups = $derived(groupProcesses(app.snap, app.meta));
+  let allGroups = $derived(groupProcesses(app.snap, app.meta, app.io));
+  let totalGpu = $derived(Math.min(100, allGroups.reduce((a, g) => a + g.gpu, 0)));
   let diag = $derived(app.snap ? diagnose(app.snap, allGroups) : null);
 
   let groups = $derived.by(() => {
@@ -75,8 +76,12 @@
 
   onMount(() => {
     refreshExtras();
+    const stopIo = useIo();
     const timer = setInterval(() => !document.hidden && refreshExtras(), 2000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      stopIo();
+    };
   });
 
   async function endSelected() {
@@ -86,7 +91,18 @@
   const heatCpu = (v) => Math.min(1, v / 40);
   const heatMem = (v) => Math.min(1, v / ((app.snap?.memory_total ?? 1) * 0.15));
   const heatDisk = (v) => Math.min(1, v / (20 << 20));
-  const heat = (cpu, memory, disk) => `--c:${heatCpu(cpu)};--m:${heatMem(memory)};--d:${heatDisk(disk)}`;
+  const heatNet = (v) => Math.min(1, v / (2 << 20));
+  const heatGpu = (v) => Math.min(1, v / 50);
+  const heat = (cpu, memory, disk, net, gpu) =>
+    `--c:${heatCpu(cpu)};--m:${heatMem(memory)};--d:${heatDisk(disk)};--n:${heatNet(net)};--g:${heatGpu(gpu)}`;
+
+  // "—" when the system cannot provide the figure; the tooltip explains why
+  const netCell = (v) => (app.io.net.supported ? fmtRate(v) : "—");
+  const gpuCell = (v) => (app.io.gpu.supported ? `${v.toFixed(v > 0 && v < 10 ? 1 : 0)}%` : "—");
+  let netHint = $derived(
+    app.io.net.supported ? "" : app.io.net.needs_admin ? t("Cần chạy với quyền quản trị để đo mạng từng tiến trình") : t("Hệ điều hành này không cung cấp dữ liệu này"),
+  );
+  let gpuHint = $derived(app.io.gpu.supported ? "" : t("Hệ điều hành này không cung cấp dữ liệu này"));
 
   const arrow = (k) => (sortKey === k ? (asc ? " ▲" : " ▼") : "");
 </script>
@@ -170,17 +186,29 @@
               <small>{t("Ổ đĩa")}{arrow("disk")}</small>
             </button>
           </th>
+          <th class="num" title={netHint}>
+            <button onclick={() => sortBy("net")}>
+              <b>{app.snap ? (app.io.net.supported ? fmtRate(app.snap.net_rx + app.snap.net_tx) : "—") : "–"}</b>
+              <small>{t("Mạng")}{arrow("net")}</small>
+            </button>
+          </th>
+          <th class="num" title={gpuHint}>
+            <button onclick={() => sortBy("gpu")}>
+              <b>{app.io.gpu.supported ? `${totalGpu.toFixed(0)}%` : "—"}</b>
+              <small>GPU{arrow("gpu")}</small>
+            </button>
+          </th>
         </tr>
       </thead>
       <tbody>
-        {#if r.padTop}<tr class="pad" style="height:{r.padTop}px"><td colspan="4"></td></tr>{/if}
+        {#if r.padTop}<tr class="pad" style="height:{r.padTop}px"><td colspan="6"></td></tr>{/if}
         {#each visible as row (row.k)}
           {#if !row.p}
             {@const g = row.g}
             {@const multi = g.procs.length > 1}
             <tr
               class:sel={selected?.id === "g:" + g.key}
-              style={heat(g.cpu, g.memory, g.disk)}
+              style={heat(g.cpu, g.memory, g.disk, g.net, g.gpu)}
               onclick={() => selectGroup(g)}
               ondblclick={() => multi && (open.has(g.key) ? open.delete(g.key) : open.add(g.key))}
             >
@@ -206,23 +234,27 @@
               <td class="num c-cpu">{g.cpu.toFixed(1)}%</td>
               <td class="num c-mem">{fmtBytes(g.memory)}</td>
               <td class="num c-disk">{fmtRate(g.disk)}</td>
+              <td class="num c-net" title={netHint}>{netCell(g.net)}</td>
+              <td class="num c-gpu" title={gpuHint}>{gpuCell(g.gpu)}</td>
             </tr>
           {:else}
             {@const p = row.p}
             <tr
               class="child"
               class:sel={selected?.id === "p:" + p.pid}
-              style={heat(p.cpu, p.memory, p.disk)}
+              style={heat(p.cpu, p.memory, p.disk, p.net, p.gpu)}
               onclick={() => (selected = { id: "p:" + p.pid, label: `${p.name} (PID ${p.pid})`, procs: [p] })}
             >
               <td class="namecol"><span class="name"><span class="chev"></span><span class="ico"></span><span class="label">{p.name} <small>PID {p.pid}</small></span>{#if isEco(p)}<span class="eco" title={t("Đang ở chế độ tiết kiệm")}>🌿</span>{/if}</span></td>
               <td class="num c-cpu">{p.cpu.toFixed(1)}%</td>
               <td class="num c-mem">{fmtBytes(p.memory)}</td>
               <td class="num c-disk">{fmtRate(p.disk)}</td>
+              <td class="num c-net" title={netHint}>{netCell(p.net)}</td>
+              <td class="num c-gpu" title={gpuHint}>{gpuCell(p.gpu)}</td>
             </tr>
           {/if}
         {/each}
-        {#if r.padBottom}<tr class="pad" style="height:{r.padBottom}px"><td colspan="4"></td></tr>{/if}
+        {#if r.padBottom}<tr class="pad" style="height:{r.padBottom}px"><td colspan="6"></td></tr>{/if}
       </tbody>
     </table>
   </div>
