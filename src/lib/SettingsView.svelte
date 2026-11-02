@@ -4,6 +4,7 @@
   import { settings, saveSettings, applySettings } from "./settings.svelte.js";
   import { restartPolling } from "./store.svelte.js";
   import { t } from "./i18n.svelte.js";
+  import { fmtBytes } from "./format.js";
 
   /** Background watcher config; it lives in Rust so it works even when no window is open */
   let watch = $state({ history: true, notify: true, cpu_threshold: 90, ram_threshold: 90, sustain_secs: 120, lang: "vi" });
@@ -44,10 +45,26 @@
     }
   }
 
+  /** Memory used by this app: Rust process + WebView processes */
+  let selfUsage = $state(null);
+  /** False on desktops without a system tray (stock GNOME): the app then quits when the window is closed */
+  let trayOk = $state(true);
+
+  async function loadSelf() {
+    selfUsage = await invoke("get_self_usage").catch(() => null);
+  }
+
   onMount(async () => {
     autostart = await invoke("get_autostart").catch(() => false);
     elevated = await invoke("is_elevated").catch(() => false);
+    trayOk = await invoke("tray_available").catch(() => true);
     Object.assign(watch, await invoke("get_watch_config").catch(() => ({})));
+  });
+
+  onMount(() => {
+    loadSelf();
+    const timer = setInterval(() => !document.hidden && loadSelf(), 3000);
+    return () => clearInterval(timer);
   });
 </script>
 
@@ -56,6 +73,22 @@
   {#if error}<p class="error">{error}</p>{/if}
 
   <div class="settings">
+    <div class="srow">
+      <span>
+        <b>{t("Bộ nhớ của ứng dụng này")}</b>
+        <small>
+          {#if selfUsage}
+            {t("Ứng dụng {app} + giao diện {web} ({n} tiến trình). Tính theo bộ nhớ riêng, giống cột Memory của Task Manager.", {
+              app: fmtBytes(selfUsage.app),
+              web: fmtBytes(selfUsage.webview),
+              n: selfUsage.webview_count,
+            })}
+          {:else}…{/if}
+        </small>
+      </span>
+      <b>{selfUsage ? fmtBytes(selfUsage.app + selfUsage.webview) : "…"}</b>
+    </div>
+
     <label class="srow">
       <span><b>{t("Ngôn ngữ")}</b><small>{t("Áp dụng cho giao diện, thông báo và thông báo lỗi")}</small></span>
       <select class="btn" bind:value={settings.lang} onchange={change}>
@@ -84,8 +117,11 @@
     </label>
 
     <label class="srow">
-      <span><b>{t("Nút đóng cửa sổ")}</b><small>{t("Thu xuống khay để widget và theo dõi vẫn chạy, hoặc thoát hẳn")}</small></span>
-      <select class="btn" bind:value={settings.closeToTray} onchange={change}>
+      <span>
+        <b>{t("Nút đóng cửa sổ")}</b>
+        <small>{trayOk ? t("Thu xuống khay để widget và theo dõi vẫn chạy, hoặc thoát hẳn") : t("Môi trường desktop của bạn không có khay hệ thống, nên đóng cửa sổ sẽ thoát ứng dụng")}</small>
+      </span>
+      <select class="btn" bind:value={settings.closeToTray} onchange={change} disabled={!trayOk}>
         <option value={true}>{t("Thu xuống khay")}</option>
         <option value={false}>{t("Thoát ứng dụng")}</option>
       </select>

@@ -157,6 +157,14 @@ export const EN = {
   "Gửi": "Send",
   "Tổng I/O của các tiến trình trong 1 giây vừa qua.": "Total I/O of all processes during the last second.",
   "Tổng của mọi card mạng.": "Total of all network adapters.",
+  "Nhiệt độ": "Temperature",
+  "Cảm biến nhiệt độ": "Temperature sensors",
+  "Không đọc được nhiệt độ: hệ thống hoặc phần cứng này không cung cấp cảm biến (trên Windows thường cần quyền quản trị).": "Temperature unavailable: this system or hardware exposes no sensor (on Windows it usually needs administrator rights).",
+  "Thời gian hoạt động": "Active time",
+  "Bộ nhớ GPU": "GPU memory",
+  "Không đọc được mức dùng GPU: hệ thống hoặc driver này không cung cấp.": "GPU usage unavailable: this system or driver does not provide it.",
+  "Cần chạy với quyền quản trị để đo mạng từng tiến trình": "Administrator rights are needed to measure network use per process",
+  "Hệ điều hành này không cung cấp dữ liệu này": "This operating system does not provide this data",
 
   // History tab
   "1 giờ": "1 hour",
@@ -230,6 +238,9 @@ export const EN = {
   "\"{display}\" sẽ không tự chạy khi bật máy nữa. Bạn có thể bật lại trong tab Khởi động. Việc này không xoá file.": "\"{display}\" will no longer start with the PC. You can turn it back on in the Startup tab. This does not delete the file.",
 
   // Settings tab
+  "Bộ nhớ của ứng dụng này": "Memory used by this app",
+  "Ứng dụng {app} + giao diện {web} ({n} tiến trình). Tính theo bộ nhớ riêng, giống cột Memory của Task Manager.": "App {app} + interface {web} ({n} processes). Measured as private memory, like Task Manager's Memory column.",
+  "Môi trường desktop của bạn không có khay hệ thống, nên đóng cửa sổ sẽ thoát ứng dụng": "Your desktop has no system tray, so closing the window quits the app",
   "Ngôn ngữ": "Language",
   "Áp dụng cho giao diện, thông báo và thông báo lỗi": "Applies to the interface, notifications and error messages",
   "Chu kỳ làm mới": "Refresh interval",
