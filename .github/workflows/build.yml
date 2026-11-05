@@ -10,7 +10,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-22.04]
+        # macos-latest is arm64 and its runner pool has been too congested to pick jobs up; the Intel
+        # pool (macos-15-intel) has separate capacity and builds the same code.
+        os: [windows-latest, macos-15-intel, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
